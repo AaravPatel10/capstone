@@ -121,7 +121,6 @@ void setup() {
   pixel.begin();
   pixel.setBrightness(100);
   pixel.show();
-  selectedMode = 0;
   menuUpdate();
   // Connect to Internet but not Particle Cloud
   WiFi.on();
