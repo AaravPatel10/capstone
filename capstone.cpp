@@ -16,8 +16,31 @@
 #include "neopixel.h"
 #include "Adafruit_BME280.h"
 #include "colors.h"
+#include <Adafruit_MQTT.h>
+#include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h"
+#include "Adafruit_MQTT/Adafruit_MQTT.h"
+#include "credentials.h"
 // Let Device OS manage the connection to the Particle Cloud
+//adafruit 
+/************ Global State (you don't need to change this!) ***   ***************/ 
+TCPClient TheClient; 
 
+// Setup the MQTT client class by passing in the WiFi client and MQTT server and login details. 
+Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
+
+/****************************** Feeds ***************************************/ 
+// Setup Feeds to publish or subscribe 
+// Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname> 
+
+Adafruit_MQTT_Publish pubFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/mode");
+
+
+unsigned int last, lastTime;
+float subValue,pubValue;
+
+
+void MQTT_connect();
+bool MQTT_ping();
 //bluefruit 
 const size_t UART_TX_BUF_SIZE = 20;
 uint8_t txBuf[UART_TX_BUF_SIZE];
@@ -33,7 +56,7 @@ SYSTEM_MODE(SEMI_AUTOMATIC);
 Encoder myEnc(D8,D9);
 Button modeButton(D4);
 //timer
-unsigned int lastTime;
+unsigned int lastTime2;
 unsigned int currentTime;
 int blinkState;
 
@@ -41,8 +64,8 @@ int blinkState;
 unsigned int lastMoveTime;
 int ballXStartPosition= 64;
 int ballYStartPosition = 32;
-int ballSpeedVertical = 2;
-int ballSpeedhorizontal = 2;
+int ballSpeedVertical = 3;
+int ballSpeedhorizontal = 3;
 int paddleXStartPosition = 55;
 int paddleYStartPosition = 60;
 int paddleWidth = 20;
@@ -100,7 +123,13 @@ void setup() {
   pixel.show();
   selectedMode = 0;
   menuUpdate();
-
+  // Connect to Internet but not Particle Cloud
+  WiFi.on();
+  WiFi.connect();
+  while(WiFi.connecting()) {
+    Serial.printf(".");
+  }
+  Serial.printf("\n\n");
   //bme
     status = bme.begin(hexAddress);
   if (status == TRUE) {
@@ -117,6 +146,17 @@ void setup() {
 }
 
 void loop() {
+  //adafruit io
+    MQTT_connect();
+  MQTT_ping();
+   if((millis()-lastTime2 > 6000)) {
+    if(mqtt.Update()) {
+      pubValue = selectedMode;
+      pubFeed.publish(pubValue);
+      Serial.printf("Publishing %0.2f \n",pubValue); 
+      } 
+    lastTime2 = millis();
+  }
   //bluefruit
   sprintf((char *)buf, "the mode is %i\n", selectedMode);
   buf[BUFSIZE - 1] = 0x0A;
@@ -301,8 +341,8 @@ if(ballYStartPosition > paddleYStartPosition + paddleHeight){
  pixel.show();
  ballXStartPosition = 64;
  ballYStartPosition = 32;
- ballSpeedhorizontal = 2;
- ballSpeedVertical = 2;
+ ballSpeedhorizontal = 3;
+ ballSpeedVertical = 3;
 }
 
  if(ballYStartPosition >= paddleYStartPosition){
@@ -344,8 +384,8 @@ display.fillRect(paddleXStartPosition,paddleYStartPosition,paddleWidth,3,WHITE);
  score = 0;
  ballXStartPosition = 64;
  ballYStartPosition = 32;
- ballSpeedhorizontal = 2;
- ballSpeedVertical = 2;
+ ballSpeedhorizontal = 3;
+ ballSpeedVertical = 3;
  paddleXStartPosition = 55;
   for(n = 0;n < lives;n++){
   if( n < lives){
@@ -375,4 +415,40 @@ void onDataReceived(const uint8_t* data, size_t len, const BlePeerDevice& peer, 
 
  
   
+}
+// Function to connect and reconnect as necessary to the MQTT server.
+// Should be called in the loop function and it will take care if connecting.
+void MQTT_connect() {
+  int8_t ret;
+ 
+  // Return if already connected.
+  if (mqtt.connected()) {
+    return;
+  }
+ 
+  Serial.print("Connecting to MQTT... ");
+ 
+  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+       Serial.printf("Error Code %s\n",mqtt.connectErrorString(ret));
+       Serial.printf("Retrying MQTT connection in 5 seconds...\n");
+       mqtt.disconnect();
+       delay(5000);  // wait 5 seconds and try again
+  }
+  Serial.printf("MQTT Connected!\n");
+}
+
+bool MQTT_ping() {
+  static unsigned int last;
+  bool pingStatus;
+
+  if ((millis()-last)>120000) {
+      Serial.printf("Pinging MQTT \n");
+      pingStatus = mqtt.ping();
+      if(!pingStatus) {
+        Serial.printf("Disconnecting \n");
+        mqtt.disconnect();
+      }
+      last = millis();
+  }
+  return pingStatus;
 }
